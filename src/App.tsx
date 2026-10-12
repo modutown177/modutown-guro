@@ -469,4 +469,311 @@ export default function App() {
                       <div className="pt-2 flex gap-2">
                         <button
                           onClick={() => openMap({ title: p.name, address: p.address, lat: p.lat, lng: p.lng })}
-                          className="flex-1 py-2 text-center rounded-xl bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:
+                          className="flex-1 py-2 text-center rounded-xl bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 text-xs font-bold transition border border-slate-200/70"
+                        >
+                          🧭 위치 지도 보기
+                        </button>
+                        {p.contact && (
+                          <a
+                            href={`tel:${p.contact}`}
+                            className="px-3 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-bold text-center border border-slate-200/70"
+                          >
+                            전화
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 2) 프로그램 목록 */}
+        {currentTab === 'programs' && (
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <span className="text-xs font-bold text-slate-500">
+                총 <strong className="text-slate-900">{filteredPrograms.length}</strong>개의 프로그램
+              </span>
+            </div>
+
+            {filteredPrograms.length === 0 ? (
+              <div className="py-24 text-center bg-white rounded-3xl border border-slate-200/80">
+                <p className="text-xs text-slate-400">등록된 프로그램이 없습니다.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredPrograms.map(p => (
+                  <div
+                    key={p.id}
+                    className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs hover:shadow-md hover:border-emerald-300 transition flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">
+                          {p.targetGroup}
+                        </span>
+                        <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md">
+                          {p.residencyReq}
+                        </span>
+                        <span className="text-[11px] text-slate-400 ml-auto">📍 {p.locationDong}</span>
+                      </div>
+                      <h3 className="font-bold text-slate-900 text-base leading-snug">{p.title}</h3>
+                      <p className="text-xs text-slate-400 mt-0.5">{p.organization}</p>
+                      <p className="text-xs text-slate-600 mt-2.5 line-clamp-2 leading-relaxed">{p.description}</p>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-100 text-xs text-slate-500 space-y-1">
+                      <p>🕒 {p.period}</p>
+                      <p>🏛️ {p.locationDetail || `${p.locationDong} 소재`}</p>
+                      <div className="pt-2 flex gap-2">
+                        <button
+                          onClick={() => openMap({ title: p.title, address: p.locationDetail, lat: p.lat, lng: p.lng })}
+                          className="flex-1 py-2 text-center rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold transition border border-slate-200"
+                        >
+                          위치 지도
+                        </button>
+                        {p.contact && (
+                          <a
+                            href={p.contact.startsWith('http') ? p.contact : `tel:${p.contact}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex-1 py-2 text-center rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs"
+                          >
+                            신청 / 문의
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 3) 하루 추천코스 */}
+        {currentTab === 'courses' && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {GURO_COURSES.map(course => (
+              <div
+                key={course.id}
+                className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-xs hover:shadow-lg transition flex flex-col justify-between"
+              >
+                <div className="space-y-3">
+                  <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100 inline-block">
+                    {course.tag}
+                  </span>
+                  <h3 className="font-bold text-slate-900 text-lg leading-snug">{course.title}</h3>
+                  <div className="bg-[#F8FAF9] border border-emerald-100/60 rounded-2xl p-3.5">
+                    <p className="text-[11px] font-bold text-emerald-700 mb-1">🚶 추천 코스 동선</p>
+                    <p className="text-xs font-semibold text-slate-800 leading-relaxed">{course.route.join(' ➔ ')}</p>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed">{course.desc}</p>
+                </div>
+
+                <div className="mt-5 pt-4 border-t border-slate-100">
+                  <button
+                    onClick={() => openMap({ title: course.title, lat: course.lat, lng: course.lng })}
+                    className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold text-center transition shadow-xs"
+                  >
+                    🧭 코스 시작 지점 지도 보기
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 4) 축제 & 행사 소식 */}
+        {currentTab === 'events' && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {GURO_EVENTS.map(ev => (
+              <div key={ev.id} className="bg-white rounded-3xl border border-slate-200/80 p-6 shadow-xs space-y-3">
+                <span className="text-xs font-bold text-purple-700 bg-purple-50 px-3 py-1 rounded-full border border-purple-100 inline-block">
+                  {ev.tag}
+                </span>
+                <h3 className="font-bold text-slate-900 text-lg">{ev.title}</h3>
+                <p className="text-xs text-slate-600 leading-relaxed">{ev.desc}</p>
+                <div className="pt-3 border-t border-slate-100 text-xs text-slate-500 space-y-1">
+                  <p>📅 {ev.period}</p>
+                  <p>📍 {ev.place}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+
+      {/* 6. 우측 하단 감성 플로팅 지도 버튼 (원할 때 언제든 지도 호출) */}
+      <aside className="fixed bottom-6 right-6 z-30">
+        <button
+          onClick={() => openMap({ title: '구로구 전체 마을지도', lat: 37.4954, lng: 126.8875 })}
+          className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-4 py-3 rounded-full shadow-xl hover:shadow-2xl transition transform hover:-translate-y-0.5 border border-slate-700"
+          aria-label="지도 열기"
+        >
+          <span className="text-base">🗺️</span>
+          <span>지도 모아보기</span>
+        </button>
+      </aside>
+
+      {/* 7. 지도 모달 팝업 (요청할 때만 깔끔하게 뜨는 레이어 창) */}
+      {mapModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-3xl w-full max-w-3xl overflow-hidden shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2">
+                <span className="text-base">📍</span>
+                <div>
+                  <h4 className="font-bold text-slate-900 text-sm">{activeMapTarget?.title}</h4>
+                  {activeMapTarget?.address && (
+                    <p className="text-xs text-slate-500">{activeMapTarget.address}</p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => setMapModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center text-sm font-bold transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="w-full h-80 sm:h-96 relative bg-slate-100">
+              <iframe
+                title="Map Popup"
+                className="w-full h-full border-0"
+                src={mapUrl}
+              />
+            </div>
+
+            <div className="p-3 bg-slate-50 text-right">
+              <button
+                onClick={() => setMapModalOpen(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl transition"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 8. 프로그램 등록 모달 (PIN: guro2026) */}
+      {registerModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            {!pinVerified ? (
+              <form onSubmit={handleVerifyPin} className="space-y-4">
+                <h3 className="text-lg font-bold text-slate-900">기관 담당자 보안 인증</h3>
+                <p className="text-xs text-slate-500">
+                  신규 프로그램 등록을 위해 기관 공통 PIN 코드를 입력해주세요.
+                </p>
+                <input
+                  type="password"
+                  placeholder="보안 코드 (guro2026)"
+                  value={pinInput}
+                  onChange={e => setPinInput(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 p-3 text-sm focus:border-emerald-600 focus:outline-none"
+                  autoFocus
+                />
+                {pinError && <p className="text-xs text-red-500">보안 코드가 올바르지 않습니다.</p>}
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setRegisterModalOpen(false)}
+                    className="w-1/2 rounded-xl bg-slate-100 py-3 text-xs font-bold text-slate-600"
+                  >
+                    닫기
+                  </button>
+                  <button
+                    type="submit"
+                    className="w-1/2 rounded-xl bg-emerald-600 py-3 text-xs font-bold text-white hover:bg-emerald-700"
+                  >
+                    확인
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={handleSaveProgram} className="space-y-4">
+                <h3 className="text-lg font-bold text-slate-900 pb-2 border-b border-slate-100">
+                  프로그램 신규 등록
+                </h3>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">프로그램명 *</label>
+                  <input
+                    type="text"
+                    required
+                    value={form.title || ''}
+                    onChange={e => setForm({ ...form, title: e.target.value })}
+                    className="w-full rounded-xl border border-slate-300 p-2.5 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">기관명 *</label>
+                  <input
+                    type="text"
+                    required
+                    value={form.organization || ''}
+                    onChange={e => setForm({ ...form, organization: e.target.value })}
+                    className="w-full rounded-xl border border-slate-300 p-2.5 text-xs"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">동 선택 *</label>
+                    <select
+                      value={form.locationDong}
+                      onChange={e => setForm({ ...form, locationDong: e.target.value })}
+                      className="w-full rounded-xl border border-slate-300 p-2.5 text-xs"
+                    >
+                      {GURO_DONGS.filter(d => d !== '전체').map(d => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">참여 대상</label>
+                    <input
+                      type="text"
+                      placeholder="예: 청년, 전 연령"
+                      value={form.targetGroup || ''}
+                      onChange={e => setForm({ ...form, targetGroup: e.target.value })}
+                      className="w-full rounded-xl border border-slate-300 p-2.5 text-xs"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">소개글</label>
+                  <textarea
+                    rows={2}
+                    value={form.description || ''}
+                    onChange={e => setForm({ ...form, description: e.target.value })}
+                    className="w-full rounded-xl border border-slate-300 p-2.5 text-xs resize-none"
+                  />
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setRegisterModalOpen(false)}
+                    className="w-1/2 rounded-xl bg-slate-100 py-3 text-xs font-bold text-slate-600"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="submit"
+                    className="w-1/2 rounded-xl bg-emerald-600 py-3 text-xs font-bold text-white hover:bg-emerald-700"
+                  >
+                    등록 완료
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
