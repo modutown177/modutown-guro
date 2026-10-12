@@ -16,9 +16,29 @@ interface Program {
   fee: string;
   contact: string;
   description: string;
-  adminName?: string;
-  adminContact?: string;
+  lat?: number;
+  lng?: number;
 }
+
+// 구로구 주요 거점 및 동별 대표 좌표
+const DONG_COORDINATES: Record<string, { lat: number; lng: number }> = {
+  '신도림동': { lat: 37.5098, lng: 126.8913 },
+  '구로1동': { lat: 37.4982, lng: 126.8715 },
+  '구로2동': { lat: 37.4935, lng: 126.8862 },
+  '구로3동': { lat: 37.4851, lng: 126.8974 },
+  '구로4동': { lat: 37.4912, lng: 126.8901 },
+  '구로5동': { lat: 37.5028, lng: 126.8885 },
+  '가리봉동': { lat: 37.4828, lng: 126.8880 },
+  '고척1동': { lat: 37.5015, lng: 126.8640 },
+  '고척2동': { lat: 37.5085, lng: 126.8572 },
+  '개봉1동': { lat: 37.4998, lng: 126.8512 },
+  '개봉2동': { lat: 37.4942, lng: 126.8580 },
+  '개봉3동': { lat: 37.4879, lng: 126.8565 },
+  '오류1동': { lat: 37.4958, lng: 126.8455 },
+  '오류2동': { lat: 37.4890, lng: 126.8402 },
+  '항동': { lat: 37.4795, lng: 126.8285 },
+  '수궁동': { lat: 37.4930, lng: 126.8320 },
+};
 
 const GURO_DONGS = [
   '구로구 전체', '신도림동', '구로1동', '구로2동', '구로3동', '구로4동', '구로5동',
@@ -37,10 +57,12 @@ const INITIAL_PROGRAMS: Program[] = [
     locationDong: '오류2동',
     residencyReq: '구로구민 누구나',
     period: '매주 토 10:00 ~ 12:00',
-    locationDetail: '지하 1층 창작공작소',
+    locationDetail: '지하 1층 창작공작소 (천왕이펜하우스 부근)',
     fee: '무료',
     contact: '02-2060-1318',
-    description: '원목 도구를 직접 다루며 생활 소품을 제작하는 참여형 메이커 워크숍입니다.'
+    description: '원목 도구를 직접 다루며 생활 소품을 제작하는 참여형 메이커 워크숍입니다.',
+    lat: 37.4890,
+    lng: 126.8402
   },
   {
     id: 'prog-2',
@@ -52,10 +74,28 @@ const INITIAL_PROGRAMS: Program[] = [
     locationDong: '오류1동',
     residencyReq: '구로구민 누구나',
     period: '매주 화 저녁 7시',
-    locationDetail: '청년이룸 다목적실',
+    locationDetail: '천왕역 4번출구 청년이룸 다목적실',
     fee: '무료',
     contact: '070-4963-9991',
-    description: '사회초년생과 청년들을 위한 저녁 힐링 티 블렌딩 및 스트레스 완화 모임.'
+    description: '사회초년생과 청년들을 위한 저녁 힐링 티 블렌딩 및 스트레스 완화 모임.',
+    lat: 37.4866,
+    lng: 126.8385
+  },
+  {
+    id: 'prog-3',
+    title: '동네 인문학 사랑방 & 북토크',
+    organization: '구로기적의도서관',
+    category: 'culture_learning',
+    targetGroup: '청년·성인 전체',
+    locationDong: '신도림동',
+    residencyReq: '구로구민 누구나',
+    period: '격주 목 19:30',
+    locationDetail: '2층 배움마당',
+    fee: '무료',
+    contact: '02-2632-8878',
+    description: '지역 주민들과 함께하는 따뜻한 책 나눔과 일상 인문학 독서 살롱.',
+    lat: 37.5098,
+    lng: 126.8913
   }
 ];
 
@@ -66,6 +106,8 @@ export default function App() {
   const [selectedDong, setSelectedDong] = useState<string>('구로구 전체');
   const [selectedCategory, setSelectedCategory] = useState<CategoryType>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [showMap, setShowMap] = useState<boolean>(true);
+  const [focusedProgram, setFocusedProgram] = useState<Program | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProgram, setEditingProgram] = useState<Program | null>(null);
@@ -131,6 +173,9 @@ export default function App() {
       return;
     }
 
+    const dong = form.locationDong || '신도림동';
+    const coords = DONG_COORDINATES[dong] || { lat: 37.4955, lng: 126.8874 };
+
     const newProg: Program = {
       id: editingProgram ? editingProgram.id : `prog-${Date.now()}`,
       title: form.title || '',
@@ -138,20 +183,20 @@ export default function App() {
       category: form.category || 'culture_learning',
       targetGroup: form.targetGroup || '청년·성인 전체',
       specificAge: form.specificAge || '',
-      locationDong: form.locationDong || '신도림동',
+      locationDong: dong,
       residencyReq: form.residencyReq || '구로구민 누구나',
       period: form.period || '일정 확인 필요',
       locationDetail: form.locationDetail || '',
       fee: form.fee || '무료',
       contact: form.contact || '',
       description: form.description || '',
-      adminName: form.adminName || '',
-      adminContact: form.adminContact || ''
+      lat: form.lat || coords.lat,
+      lng: form.lng || coords.lng
     };
 
     let updated: Program[];
     if (editingProgram) {
-      updated = programs.map(p => p.id === editingProgram.id ? newProg : p);
+      updated = programs.map(p => (p.id === editingProgram.id ? newProg : p));
     } else {
       updated = [newProg, ...programs];
     }
@@ -177,37 +222,57 @@ export default function App() {
   const filteredPrograms = programs.filter(p => {
     const matchDong = selectedDong === '구로구 전체' || p.locationDong === selectedDong;
     const matchCat = selectedCategory === 'all' || p.category === selectedCategory;
-    const matchQuery = !searchQuery || 
-      p.title.includes(searchQuery) || 
-      p.organization.includes(searchQuery) || 
+    const matchQuery =
+      !searchQuery ||
+      p.title.includes(searchQuery) ||
+      p.organization.includes(searchQuery) ||
       (p.description && p.description.includes(searchQuery));
     return matchDong && matchCat && matchQuery;
   });
 
+  // 지도 중심 좌표 계산 (선택된 프로그램이 있으면 해당 위치, 아니면 구로구 중심)
+  const currentCenter = focusedProgram && focusedProgram.lat && focusedProgram.lng
+    ? { lat: focusedProgram.lat, lng: focusedProgram.lng }
+    : selectedDong !== '구로구 전체' && DONG_COORDINATES[selectedDong]
+    ? DONG_COORDINATES[selectedDong]
+    : { lat: 37.4955, lng: 126.8584 };
+
+  const mapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${currentCenter.lng - 0.02}%2C${currentCenter.lat - 0.015}%2C${currentCenter.lng + 0.02}%2C${currentCenter.lat + 0.015}&layer=mapnik&marker=${currentCenter.lat}%2C${currentCenter.lng}`;
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 pb-16">
+      {/* 헤더 */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200 px-4 py-3">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xl font-black text-emerald-600">🌿 모두의마을 구로</span>
           </div>
-          <button
-            onClick={handleOpenRegister}
-            className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 transition"
-          >
-            + 프로그램 등록
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowMap(!showMap)}
+              className="rounded-full border border-emerald-600 text-emerald-700 bg-white px-3 py-1.5 text-xs font-bold hover:bg-emerald-50 transition"
+            >
+              {showMap ? '🗺️ 지도 숨기기' : '🗺️ 지도 보기'}
+            </button>
+            <button
+              onClick={handleOpenRegister}
+              className="rounded-full bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 transition"
+            >
+              + 프로그램 등록
+            </button>
+          </div>
         </div>
       </header>
 
-      <section className="bg-gradient-to-b from-emerald-700 to-emerald-800 text-white px-4 py-10 shadow-inner">
-        <div className="max-w-4xl mx-auto text-center space-y-3">
+      {/* 히어로 섹션 */}
+      <section className="bg-gradient-to-b from-emerald-700 to-emerald-800 text-white px-4 py-8 shadow-inner">
+        <div className="max-w-4xl mx-auto text-center space-y-2">
           <p className="text-xs uppercase tracking-widest text-emerald-200 font-semibold">Guro Community Platform</p>
           <h1 className="text-2xl sm:text-3xl font-extrabold leading-tight">
-            하나의 프로그램에서,<br className="sm:hidden" /> 우리 동네의 하루로
+            동네 골목에서 배움으로, 우리 구로의 하루
           </h1>
-          <p className="text-xs sm:text-sm text-emerald-100">구로구 관내 복지·문화·힐링 프로그램을 한눈에 만나보세요.</p>
-          
+          <p className="text-xs sm:text-sm text-emerald-100">구로구 관내 복지관·청소년센터·마을 배움터를 한눈에 둘러보세요.</p>
+
           <div className="pt-2 max-w-xl mx-auto">
             <input
               type="text"
@@ -220,12 +285,51 @@ export default function App() {
         </div>
       </section>
 
+      {/* 인터랙티브 동네 지도 영역 */}
+      {showMap && (
+        <section className="max-w-6xl mx-auto px-4 mt-6">
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-700">📍 우리 동네 마을 지도</span>
+                {focusedProgram ? (
+                  <span className="text-xs bg-emerald-100 text-emerald-800 font-medium px-2 py-0.5 rounded-full">
+                    선택: {focusedProgram.title} ({focusedProgram.locationDong})
+                  </span>
+                ) : (
+                  <span className="text-xs text-slate-400">카드를 누르면 지도가 해당 위치로 이동합니다</span>
+                )}
+              </div>
+              {focusedProgram && (
+                <button
+                  onClick={() => setFocusedProgram(null)}
+                  className="text-xs text-slate-500 hover:text-slate-800 underline"
+                >
+                  기본 위치로 리셋
+                </button>
+              )}
+            </div>
+            <div className="relative w-full h-64 sm:h-80 bg-slate-100">
+              <iframe
+                title="Guro Village Map"
+                className="w-full h-full border-0"
+                src={mapUrl}
+              />
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* 동네 및 카테고리 필터 */}
       <div className="max-w-6xl mx-auto px-4 mt-6 space-y-3">
         <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
           {GURO_DONGS.map(dong => (
             <button
               key={dong}
-              onClick={() => setSelectedDong(dong)}
+              onClick={() => {
+                setSelectedDong(dong);
+                setFocusedProgram(null);
+              }}
               className={`whitespace-nowrap px-3.5 py-1.5 rounded-full text-xs font-medium transition ${
                 selectedDong === dong
                   ? 'bg-slate-800 text-white shadow-sm'
@@ -260,6 +364,7 @@ export default function App() {
         </div>
       </div>
 
+      {/* 프로그램 카드 목록 */}
       <main className="max-w-6xl mx-auto px-4 mt-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-sm font-bold text-slate-700">
@@ -276,9 +381,12 @@ export default function App() {
             {filteredPrograms.map(p => (
               <div
                 key={p.id}
-                className="relative flex flex-col justify-between bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm hover:shadow-md transition"
+                onClick={() => setFocusedProgram(p)}
+                className={`relative flex flex-col justify-between bg-white rounded-2xl border p-5 shadow-sm hover:shadow-md transition cursor-pointer ${
+                  focusedProgram?.id === p.id ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-slate-200/80'
+                }`}
               >
-                <div className="absolute top-4 right-4 flex gap-2">
+                <div className="absolute top-4 right-4 flex gap-2" onClick={e => e.stopPropagation()}>
                   <button
                     onClick={() => handleOpenEdit(p)}
                     className="text-xs font-medium text-slate-400 hover:text-emerald-600"
@@ -308,7 +416,7 @@ export default function App() {
 
                   <h3 className="font-bold text-slate-900 text-base leading-snug mb-1 pr-12">{p.title}</h3>
                   <p className="text-xs text-slate-500 mb-3">{p.organization}</p>
-                  
+
                   {p.description && (
                     <p className="text-xs text-slate-600 line-clamp-2 mb-4 leading-relaxed">{p.description}</p>
                   )}
@@ -319,18 +427,24 @@ export default function App() {
                   <p>🏛️ {p.locationDetail || `${p.locationDong} 소재`}</p>
                   <p>💰 {p.fee}</p>
 
-                  {p.contact && (
-                    <div className="pt-2">
+                  <div className="pt-2 flex gap-2" onClick={e => e.stopPropagation()}>
+                    <button
+                      onClick={() => setFocusedProgram(p)}
+                      className="flex-1 text-center rounded-xl bg-slate-100 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-200 transition"
+                    >
+                      🧭 지도에서 위치 보기
+                    </button>
+                    {p.contact && (
                       <a
                         href={p.contact.startsWith('http') ? p.contact : `tel:${p.contact}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="block w-full text-center rounded-xl bg-emerald-50 py-2.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 transition"
+                        className="flex-1 text-center rounded-xl bg-emerald-50 py-2.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 transition"
                       >
-                        신청 및 상세 문의
+                        신청 / 문의
                       </a>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -338,6 +452,7 @@ export default function App() {
         )}
       </main>
 
+      {/* 등록/수정 모달 */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
