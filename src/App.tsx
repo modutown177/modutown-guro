@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+
+declare const L: any;
 
 type MainTab = 'places' | 'programs' | 'courses' | 'events';
 type CategoryType = 'all' | 'relaxation' | 'culture_learning' | 'living_admin' | 'welfare_care';
@@ -155,9 +157,7 @@ export default function App() {
   const [selectedDong, setSelectedDong] = useState<string>('전체');
   const [selectedCategory, setSelectedCategory] = useState<CategoryType>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-
-  const [mapModalOpen, setMapModalOpen] = useState<boolean>(false);
-  const [activeTarget, setActiveTarget] = useState<{ title: string; address?: string; lat: number; lng: number } | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [registerModalOpen, setRegisterModalOpen] = useState(false);
   const [pinVerified, setPinVerified] = useState(false);
@@ -165,6 +165,12 @@ export default function App() {
   const [pinError, setPinError] = useState(false);
   const [form, setForm] = useState<Partial<ProgramItem>>({});
 
+  // Leaflet 지도 Ref
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const markersRef = useRef<{ [key: string]: any }>({});
+
+  // 1. 구글 시트 연동
   useEffect(() => {
     const fetchSheetData = async () => {
       try {
@@ -195,7 +201,7 @@ export default function App() {
         }
         setPlaces(items);
       } catch (err) {
-        console.warn('시트 연동 상태 확인:', err);
+        console.warn('시트 연동 상태:', err);
       } finally {
         setLoadingPlaces(false);
       }
@@ -211,6 +217,26 @@ export default function App() {
     }
   }, []);
 
+  // 2. Leaflet 지도 초기화
+  useEffect(() => {
+    if (!mapContainerRef.current || typeof L === 'undefined') return;
+
+    if (!mapInstanceRef.current) {
+      const map = L.map(mapContainerRef.current, {
+        center: [37.4954, 126.8875], // 구로구 중심
+        zoom: 13,
+        zoomControl: true,
+      });
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+      }).addTo(map);
+
+      mapInstanceRef.current = map;
+    }
+  }, []);
+
+  // 필터 데이터 계산
   const filteredPlaces = places.filter(p => {
     const matchDong = selectedDong === '전체' || p.dong.includes(selectedDong);
     const matchCat = selectedCategory === 'all' || p.category === selectedCategory;
@@ -225,9 +251,77 @@ export default function App() {
     return matchDong && matchCat && matchQuery;
   });
 
-  const openMapModal = (item: { title: string; address?: string; lat: number; lng: number }) => {
-    setActiveTarget(item);
-    setMapModalOpen(true);
+  // 3. 탭이나 필터 변경 시 지도 마커 갱신
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || typeof L === 'undefined') return;
+
+    // 기존 마커 전체 제거
+    Object.values(markersRef.current).forEach((marker: any) => map.removeLayer(marker));
+    markersRef.current = {};
+
+    let activeItems: { id: string; title: string; sub: string; lat: number; lng: number }[] = [];
+
+    if (currentTab === 'places') {
+      activeItems = filteredPlaces.map(p => ({ id: p.id, title: p.name, sub: p.subCategory, lat: p.lat, lng: p.lng }));
+    } else if (currentTab === 'programs') {
+      activeItems = filteredPrograms.map(p => ({ id: p.id, title: p.title, sub: p.organization, lat: p.lat, lng: p.lng }));
+    } else if (currentTab === 'courses') {
+      activeItems = GURO_COURSES.map(c => ({ id: c.id, title: c.title, sub: c.tag, lat: c.lat, lng: c.lng }));
+    }
+
+    if (activeItems.length === 0) return;
+
+    const bounds = L.latLngBounds([]);
+
+    activeItems.forEach(item => {
+      if (!item.lat || !item.lng) return;
+
+      const customIcon = L.divIcon({
+        className: 'custom-map-pin',
+        html: `<div class="bg-emerald-600 text-white text-[10px] font-bold px-2 py-1 rounded-full shadow-md border-2 border-white whitespace-nowrap cursor-pointer hover:bg-emerald-800 transition transform hover:scale-110">
+                📍 ${item.title.length > 7 ? item.title.slice(0, 7) + '...' : item.title}
+               </div>`,
+        iconSize: [80, 30],
+        iconAnchor: [40, 15],
+      });
+
+      const marker = L.marker([item.lat, item.lng], { icon: customIcon }).addTo(map);
+
+      marker.on('click', () => {
+        setSelectedId(item.id);
+        map.flyTo([item.lat, item.lng], 15, { duration: 0.8 });
+      });
+
+      marker.bindPopup(`
+        <div style="font-family: sans-serif; font-size: 12px; line-height: 1.4;">
+          <strong style="color: #065f46; font-size: 13px;">${item.title}</strong><br/>
+          <span style="color: #64748b;">${item.sub}</span><br/>
+          <div style="margin-top: 6px;">
+            <a href="https://map.kakao.com/link/search/${encodeURIComponent(item.title)}" target="_blank" style="color: #2563eb; text-decoration: underline; font-weight: bold;">카카오맵 길찾기</a>
+          </div>
+        </div>
+      `);
+
+      markersRef.current[item.id] = marker;
+      bounds.extend([item.lat, item.lng]);
+    });
+
+    if (activeItems.length > 0 && bounds.isValid()) {
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+    }
+  }, [currentTab, filteredPlaces, filteredPrograms, selectedDong, selectedCategory]);
+
+  // 카드 클릭 시 해당 마커로 날아가기
+  const handleCardClick = (id: string, lat: number, lng: number) => {
+    setSelectedId(id);
+    const map = mapInstanceRef.current;
+    if (map && lat && lng) {
+      map.flyTo([lat, lng], 16, { duration: 0.8 });
+      if (markersRef.current[id]) {
+        markersRef.current[id].openPopup();
+      }
+    }
   };
 
   const handleOpenRegister = () => {
@@ -284,393 +378,233 @@ export default function App() {
     setRegisterModalOpen(false);
   };
 
-  const currentLat = activeTarget?.lat || 37.4954;
-  const currentLng = activeTarget?.lng || 126.8875;
-  const targetTitle = activeTarget?.title || '구로구';
-  const targetAddress = activeTarget?.address || '서울특별시 구로구';
-
-  // 길찾기 및 네이티브 지도 링크
-  const kakaoMapSearchUrl = `https://map.kakao.com/link/search/${encodeURIComponent(targetTitle)}`;
-  const kakaoMapDirectUrl = `https://map.kakao.com/link/map/${encodeURIComponent(targetTitle)},${currentLat},${currentLng}`;
-  const naverMapUrl = `https://map.naver.com/v5/search/${encodeURIComponent(targetTitle)}`;
-
   return (
-    <div className="min-h-screen bg-[#F8FAF9] text-slate-800 flex flex-col font-sans selection:bg-emerald-100 selection:text-emerald-800">
+    <div className="h-screen w-screen flex flex-col bg-[#F8FAF9] text-slate-800 font-sans overflow-hidden">
       {/* 1. 상단 내비게이션 바 */}
-      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-emerald-100/70 shadow-xs">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => setCurrentTab('places')}>
-            <span className="text-2xl">🌿</span>
-            <div>
-              <span className="font-extrabold text-slate-900 tracking-tight text-lg">
-                모두의마을 <span className="text-emerald-600">구로</span>
-              </span>
-              <span className="hidden sm:inline-block ml-2 text-[11px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full font-medium border border-emerald-200/50">
-                구로구 로컬 아카이브
-              </span>
-            </div>
-          </div>
+      <header className="h-14 bg-white/95 backdrop-blur border-b border-emerald-100 flex items-center justify-between px-4 sm:px-6 flex-shrink-0 z-30 shadow-xs">
+        <div className="flex items-center gap-2 cursor-pointer" onClick={() => setCurrentTab('places')}>
+          <span className="text-xl">🌿</span>
+          <span className="font-extrabold text-slate-900 tracking-tight text-base sm:text-lg">
+            모두의마을 <span className="text-emerald-600">구로</span>
+          </span>
+          <span className="hidden md:inline-block ml-2 text-[11px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full font-medium border border-emerald-200/50">
+            실시간 로컬 맵
+          </span>
+        </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => openMapModal({ title: '구로구청 & 구로구 일대', address: '서울특별시 구로구 가마산로 245', lat: 37.4954, lng: 126.8875 })}
-              className="flex items-center gap-1.5 text-xs font-semibold px-3.5 py-2 rounded-full border border-slate-200 hover:border-emerald-500 hover:text-emerald-600 bg-white transition"
-            >
-              <span>🗺️</span> 지도 모아보기
-            </button>
-            <button
-              onClick={handleOpenRegister}
-              className="text-xs font-bold px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition"
-            >
-              + 프로그램 등록
-            </button>
-          </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleOpenRegister}
+            className="text-xs font-bold px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition"
+          >
+            + 프로그램 등록
+          </button>
         </div>
       </header>
 
-      {/* 2. 히어로 배너 */}
-      <section className="bg-gradient-to-b from-[#EDF6F2] via-[#F4F9F6] to-[#F8FAF9] px-4 pt-10 pb-8 border-b border-emerald-50">
-        <div className="max-w-4xl mx-auto text-center space-y-3">
-          <div className="inline-flex items-center gap-1.5 text-emerald-800 bg-white/80 border border-emerald-200/60 rounded-full px-3 py-1 text-xs font-medium shadow-xs">
-            <span>✨</span> 우리 곁의 따뜻한 공공·문화 쉼터
+      {/* 2. 상단 탭 & 필터 툴바 */}
+      <div className="bg-white border-b border-slate-200 px-4 py-2 flex-shrink-0 z-20 space-y-2">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex gap-4 overflow-x-auto scrollbar-none">
+            {[
+              { id: 'places', label: '🏛️ 거점 시설', count: places.length },
+              { id: 'programs', label: '📋 프로그램', count: programs.length },
+              { id: 'courses', label: '🚶 하루 추천코스', count: 3 },
+              { id: 'events', label: '🎉 축제·소식', count: GURO_EVENTS.length },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setCurrentTab(tab.id as MainTab)}
+                className={`py-1 text-xs sm:text-sm font-bold whitespace-nowrap border-b-2 flex items-center gap-1.5 transition ${
+                  currentTab === tab.id ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <span>{tab.label}</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                  currentTab === tab.id ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                }`}>
+                  {tab.count}
+                </span>
+              </button>
+            ))}
           </div>
-          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-900 leading-snug tracking-tight">
-            골목의 배움에서 일상의 쉼표까지,<br />
-            <span className="text-emerald-700 underline decoration-emerald-300 decoration-wavy decoration-2 underline-offset-4">구로구 마을 라이프</span>
-          </h1>
-          <p className="text-xs sm:text-sm text-slate-600 max-w-xl mx-auto leading-relaxed">
-            푸른수목원, 마을 도서관, 키움센터, 주민 참여 프로그램을 한곳에서 확인하세요.
-          </p>
 
-          <div className="pt-3 max-w-xl mx-auto relative">
+          <div className="w-full sm:w-56">
             <input
               type="text"
-              placeholder="예: 푸른수목원, 천왕산, 키움센터, 도서관, 목공..."
+              placeholder="빠른 검색..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-11 pr-4 py-3 text-sm rounded-2xl bg-white border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-600 placeholder:text-slate-400 transition"
+              className="w-full text-xs px-3 py-1.5 rounded-xl border border-slate-300 focus:outline-none focus:border-emerald-600"
             />
-            <span className="absolute left-4 top-6 text-slate-400 text-sm">🔍</span>
           </div>
         </div>
-      </section>
 
-      {/* 3. 메인 탭 */}
-      <div className="bg-white border-b border-slate-200 sticky top-16 z-20 shadow-xs">
-        <div className="max-w-6xl mx-auto px-4 flex gap-6 overflow-x-auto scrollbar-none">
-          {[
-            { id: 'places', label: '🏛️ 거점 시설', count: places.length },
-            { id: 'programs', label: '📋 프로그램', count: programs.length },
-            { id: 'courses', label: '🚶 하루 추천코스', count: 3 },
-            { id: 'events', label: '🎉 축제·소식', count: GURO_EVENTS.length },
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setCurrentTab(tab.id as MainTab)}
-              className={`py-3.5 text-xs sm:text-sm font-bold whitespace-nowrap border-b-2 flex items-center gap-1.5 transition ${
-                currentTab === tab.id
-                  ? 'border-emerald-600 text-emerald-800'
-                  : 'border-transparent text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <span>{tab.label}</span>
-              <span className={`text-[11px] px-1.5 py-0.2 rounded-full ${
-                currentTab === tab.id ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
-              }`}>
-                {tab.count}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 4. 필터 바 */}
-      {(currentTab === 'places' || currentTab === 'programs') && (
-        <div className="max-w-6xl mx-auto px-4 pt-6 pb-2 w-full space-y-3">
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+        {/* 동네 태그 바 */}
+        {(currentTab === 'places' || currentTab === 'programs') && (
+          <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none pt-1">
             {GURO_DONGS.map(dong => (
               <button
                 key={dong}
                 onClick={() => setSelectedDong(dong)}
-                className={`text-xs px-3 py-1.5 rounded-full whitespace-nowrap transition font-medium ${
-                  selectedDong === dong
-                    ? 'bg-slate-900 text-white shadow-xs'
-                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                className={`text-[11px] px-2.5 py-0.5 rounded-full whitespace-nowrap transition font-medium ${
+                  selectedDong === dong ? 'bg-slate-900 text-white font-bold' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
                 {dong}
               </button>
             ))}
           </div>
+        )}
+      </div>
 
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-            {CATEGORY_TABS.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setSelectedCategory(tab.id)}
-                className={`text-xs px-3 py-1.5 rounded-xl whitespace-nowrap font-semibold flex items-center gap-1 transition ${
-                  selectedCategory === tab.id
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'bg-emerald-50/70 text-emerald-900 hover:bg-emerald-100 border border-emerald-100'
-                }`}
-              >
-                <span>{tab.icon}</span>
-                <span>{tab.label}</span>
-              </button>
-            ))}
+      {/* 3. Lovable 스타일 2-Pane 메인 바디 (좌: 리스트 / 우: 인터랙티브 상시 지도) */}
+      <div className="flex-1 flex flex-col-reverse lg:flex-row overflow-hidden relative">
+        {/* [좌측 카드 리스트 패널] */}
+        <div className="w-full lg:w-[460px] h-[55%] lg:h-full bg-white border-r border-slate-200 flex flex-col flex-shrink-0 z-10 shadow-sm">
+          <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs text-slate-500 font-semibold">
+            <span>
+              {currentTab === 'places' && `등록 공간 ${filteredPlaces.length}곳`}
+              {currentTab === 'programs' && `진행 프로그램 ${filteredPrograms.length}개`}
+              {currentTab === 'courses' && '추천 하루 코스 3선'}
+              {currentTab === 'events' && '구로구 대표 축제'}
+            </span>
+            <span className="text-[11px] text-emerald-700">카드를 누르면 지도가 이동합니다</span>
           </div>
-        </div>
-      )}
 
-      {/* 5. 카드 리스트 */}
-      <main className="max-w-6xl mx-auto px-4 py-4 flex-1 w-full">
-        {currentTab === 'places' && (
-          <div>
-            <div className="flex justify-between items-center mb-4">
-              <span className="text-xs font-bold text-slate-500">
-                총 <strong className="text-slate-900">{filteredPlaces.length}</strong>곳의 공간
-              </span>
-            </div>
-
-            {loadingPlaces ? (
-              <div className="py-24 text-center bg-white rounded-3xl border border-slate-200 space-y-2">
-                <span className="text-3xl animate-bounce inline-block">🌿</span>
-                <p className="text-xs text-slate-500">구로구 마을 데이터를 불러오고 있습니다...</p>
-              </div>
-            ) : filteredPlaces.length === 0 ? (
-              <div className="py-24 text-center bg-white rounded-3xl border border-slate-200">
-                <p className="text-xs text-slate-400">조건에 맞는 공간을 찾지 못했습니다.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredPlaces.map(p => (
-                  <div
-                    key={p.id}
-                    className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs hover:shadow-md hover:border-emerald-300 transition flex flex-col justify-between group"
-                  >
-                    <div>
-                      <div className="flex justify-between items-start gap-2 mb-2">
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {/* 거점 시설 */}
+            {currentTab === 'places' && (
+              <>
+                {loadingPlaces ? (
+                  <div className="p-12 text-center text-xs text-slate-400">구글 시트 연동 중...</div>
+                ) : (
+                  filteredPlaces.map(p => (
+                    <div
+                      key={p.id}
+                      onClick={() => handleCardClick(p.id, p.lat, p.lng)}
+                      className={`p-4 rounded-2xl border transition cursor-pointer hover:shadow-md ${
+                        selectedId === p.id ? 'border-emerald-500 bg-emerald-50/40 ring-2 ring-emerald-200' : 'border-slate-200 bg-white'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start gap-2 mb-1.5">
                         <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-100">
                           {p.subCategory}
                         </span>
-                        <span className="text-[11px] text-slate-400 font-medium">📍 {p.dong}</span>
+                        <span className="text-[11px] text-slate-400">📍 {p.dong}</span>
                       </div>
-                      <h3 className="font-bold text-slate-900 text-base leading-snug group-hover:text-emerald-700 transition">
-                        {p.name}
-                      </h3>
-                      <p className="text-xs text-slate-500 mt-2 line-clamp-2 leading-relaxed">
-                        {p.description || p.address}
-                      </p>
-                    </div>
-
-                    <div className="mt-4 pt-3 border-t border-slate-100 text-xs text-slate-500 space-y-1">
-                      <p className="truncate">🕒 {p.operatingHours}</p>
-                      {p.contact && <p>📞 {p.contact}</p>}
-                      <div className="pt-2 flex gap-2">
-                        <button
-                          onClick={() => openMapModal({ title: p.name, address: p.address, lat: p.lat, lng: p.lng })}
-                          className="flex-1 py-2 text-center rounded-xl bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 text-xs font-bold transition border border-slate-200"
+                      <h4 className="font-bold text-slate-900 text-sm mb-1">{p.name}</h4>
+                      <p className="text-xs text-slate-600 line-clamp-2 mb-2 leading-relaxed">{p.description || p.address}</p>
+                      <div className="border-t border-slate-100 pt-2 text-xs text-slate-500 flex justify-between items-center">
+                        <span className="truncate max-w-[200px]">🕒 {p.operatingHours}</span>
+                        <a
+                          href={`https://map.kakao.com/link/search/${encodeURIComponent(p.name)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          className="text-blue-600 font-bold hover:underline"
                         >
-                          🧭 위치 & 지도보기
-                        </button>
-                        {p.contact && (
-                          <a
-                            href={`tel:${p.contact}`}
-                            className="px-3 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-bold text-center border border-slate-200"
-                          >
-                            전화
-                          </a>
-                        )}
+                          길찾기 ➔
+                        </a>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))
+                )}
+              </>
             )}
-          </div>
-        )}
 
-        {currentTab === 'programs' && (
-          <div>
-            <div className="flex justify-between items-center mb-4">
-              <span className="text-xs font-bold text-slate-500">
-                총 <strong className="text-slate-900">{filteredPrograms.length}</strong>개의 프로그램
-              </span>
-            </div>
-
-            {filteredPrograms.length === 0 ? (
-              <div className="py-24 text-center bg-white rounded-3xl border border-slate-200">
-                <p className="text-xs text-slate-400">등록된 프로그램이 없습니다.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* 프로그램 */}
+            {currentTab === 'programs' && (
+              <>
                 {filteredPrograms.map(p => (
                   <div
                     key={p.id}
-                    className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-xs hover:shadow-md hover:border-emerald-300 transition flex flex-col justify-between"
+                    onClick={() => handleCardClick(p.id, p.lat, p.lng)}
+                    className={`p-4 rounded-2xl border transition cursor-pointer hover:shadow-md ${
+                      selectedId === p.id ? 'border-emerald-500 bg-emerald-50/40 ring-2 ring-emerald-200' : 'border-slate-200 bg-white'
+                    }`}
                   >
-                    <div>
-                      <div className="flex flex-wrap gap-1 mb-2">
-                        <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">
-                          {p.targetGroup}
-                        </span>
-                        <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md">
-                          {p.residencyReq}
-                        </span>
-                        <span className="text-[11px] text-slate-400 ml-auto">📍 {p.locationDong}</span>
-                      </div>
-                      <h3 className="font-bold text-slate-900 text-base leading-snug">{p.title}</h3>
-                      <p className="text-xs text-slate-400 mt-0.5">{p.organization}</p>
-                      <p className="text-xs text-slate-600 mt-2.5 line-clamp-2 leading-relaxed">{p.description}</p>
+                    <div className="flex justify-between items-start gap-2 mb-1">
+                      <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">
+                        {p.targetGroup}
+                      </span>
+                      <span className="text-[11px] text-slate-400">📍 {p.locationDong}</span>
                     </div>
-
-                    <div className="mt-4 pt-3 border-t border-slate-100 text-xs text-slate-500 space-y-1">
-                      <p>🕒 {p.period}</p>
-                      <p>🏛️ {p.locationDetail || `${p.locationDong} 소재`}</p>
-                      <div className="pt-2 flex gap-2">
-                        <button
-                          onClick={() => openMapModal({ title: p.title, address: p.locationDetail, lat: p.lat, lng: p.lng })}
-                          className="flex-1 py-2 text-center rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold transition border border-slate-200"
+                    <h4 className="font-bold text-slate-900 text-sm mb-1">{p.title}</h4>
+                    <p className="text-xs text-slate-500 mb-1">{p.organization}</p>
+                    <p className="text-xs text-slate-600 line-clamp-2 mb-2">{p.description}</p>
+                    <div className="border-t border-slate-100 pt-2 text-xs text-slate-500 flex justify-between items-center">
+                      <span>🕒 {p.period}</span>
+                      {p.contact && (
+                        <a
+                          href={p.contact.startsWith('http') ? p.contact : `tel:${p.contact}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          className="text-emerald-700 font-bold hover:underline"
                         >
-                          위치 확인
-                        </button>
-                        {p.contact && (
-                          <a
-                            href={p.contact.startsWith('http') ? p.contact : `tel:${p.contact}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex-1 py-2 text-center rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-xs"
-                          >
-                            신청 / 문의
-                          </a>
-                        )}
-                      </div>
+                          신청/문의 ➔
+                        </a>
+                      )}
                     </div>
                   </div>
                 ))}
-              </div>
+              </>
+            )}
+
+            {/* 추천 코스 */}
+            {currentTab === 'courses' && (
+              <>
+                {GURO_COURSES.map(course => (
+                  <div
+                    key={course.id}
+                    onClick={() => handleCardClick(course.id, course.lat, course.lng)}
+                    className={`p-4 rounded-2xl border transition cursor-pointer hover:shadow-md ${
+                      selectedId === course.id ? 'border-emerald-500 bg-emerald-50/40 ring-2 ring-emerald-200' : 'border-slate-200 bg-white'
+                    }`}
+                  >
+                    <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full">
+                      {course.tag}
+                    </span>
+                    <h4 className="font-bold text-slate-900 text-sm mt-1.5 mb-1">{course.title}</h4>
+                    <p className="text-xs text-emerald-700 font-semibold mb-1">동선: {course.route.join(' ➔ ')}</p>
+                    <p className="text-xs text-slate-600 leading-relaxed mb-2">{course.desc}</p>
+                    <div className="text-right">
+                      <span className="text-xs text-slate-400">지도에서 코스 시작점 보기 ➔</span>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* 축제 및 행사 */}
+            {currentTab === 'events' && (
+              <>
+                {GURO_EVENTS.map(ev => (
+                  <div key={ev.id} className="p-4 rounded-2xl border border-slate-200 bg-white space-y-2">
+                    <span className="text-[11px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full">
+                      {ev.tag}
+                    </span>
+                    <h4 className="font-bold text-slate-900 text-sm">{ev.title}</h4>
+                    <p className="text-xs text-slate-600 leading-relaxed">{ev.desc}</p>
+                    <div className="border-t border-slate-100 pt-2 text-xs text-slate-500 space-y-0.5">
+                      <p>📅 {ev.period}</p>
+                      <p>📍 {ev.place}</p>
+                    </div>
+                  </div>
+                ))}
+              </>
             )}
           </div>
-        )}
-
-        {currentTab === 'courses' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {GURO_COURSES.map(course => (
-              <div
-                key={course.id}
-                className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-xs hover:shadow-lg transition flex flex-col justify-between"
-              >
-                <div className="space-y-3">
-                  <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-100 inline-block">
-                    {course.tag}
-                  </span>
-                  <h3 className="font-bold text-slate-900 text-lg leading-snug">{course.title}</h3>
-                  <div className="bg-[#F8FAF9] border border-emerald-100/70 rounded-2xl p-3.5">
-                    <p className="text-[11px] font-bold text-emerald-700 mb-1">🚶 추천 코스 동선</p>
-                    <p className="text-xs font-semibold text-slate-800 leading-relaxed">{course.route.join(' ➔ ')}</p>
-                  </div>
-                  <p className="text-xs text-slate-600 leading-relaxed">{course.desc}</p>
-                </div>
-
-                <div className="mt-5 pt-4 border-t border-slate-100">
-                  <button
-                    onClick={() => openMapModal({ title: course.title, address: course.address, lat: course.lat, lng: course.lng })}
-                    className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold text-center transition shadow-xs"
-                  >
-                    🧭 코스 위치 & 길찾기
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {currentTab === 'events' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {GURO_EVENTS.map(ev => (
-              <div key={ev.id} className="bg-white rounded-3xl border border-slate-200/90 p-6 shadow-xs space-y-3">
-                <span className="text-xs font-bold text-purple-700 bg-purple-50 px-3 py-1 rounded-full border border-purple-100 inline-block">
-                  {ev.tag}
-                </span>
-                <h3 className="font-bold text-slate-900 text-lg">{ev.title}</h3>
-                <p className="text-xs text-slate-600 leading-relaxed">{ev.desc}</p>
-                <div className="pt-3 border-t border-slate-100 text-xs text-slate-500 space-y-1">
-                  <p>📅 {ev.period}</p>
-                  <p>📍 {ev.place}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </main>
-
-      {/* 6. 위치 & 길찾기 팝업 모달 (브라우저 차단 없는 안전한 뷰) */}
-      {mapModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-150">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">📍</span>
-                <div>
-                  <h4 className="font-bold text-slate-900 text-base">{targetTitle}</h4>
-                  <p className="text-xs text-slate-500 mt-0.5">{targetAddress}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setMapModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-slate-200/70 hover:bg-slate-300 text-slate-600 flex items-center justify-center text-sm font-bold transition"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4">
-              <div className="bg-emerald-50/60 border border-emerald-200/60 rounded-2xl p-4 space-y-2">
-                <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
-                  <span>🧭</span> 위치 안내
-                </div>
-                <p className="text-xs text-slate-700 leading-relaxed">
-                  <strong>{targetTitle}</strong>의 상세 위치를 스마트폰 지도 앱이나 웹 브라우저에서 바로 확인하실 수 있습니다.
-                </p>
-                <div className="text-[11px] text-slate-500 font-mono bg-white/80 p-2 rounded-lg border border-emerald-100">
-                  위도: {currentLat.toFixed(5)} / 경도: {currentLng.toFixed(5)}
-                </div>
-              </div>
-
-              {/* 카카오맵 / 네이버 지도 바로가기 버튼 */}
-              <div className="space-y-2 pt-1">
-                <a
-                  href={kakaoMapDirectUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-full py-3 px-4 rounded-xl bg-[#FEE500] hover:bg-[#FDD800] text-[#191919] text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition"
-                >
-                  <span>🟡</span> 카카오맵에서 상세 지도 및 길찾기 열기
-                </a>
-                <a
-                  href={naverMapUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-full py-3 px-4 rounded-xl bg-[#03C75A] hover:bg-[#02B150] text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition"
-                >
-                  <span>🟢</span> 네이버 지도에서 장소 검색하기
-                </a>
-              </div>
-            </div>
-
-            <div className="p-3 bg-slate-50 text-right border-t border-slate-100">
-              <button
-                onClick={() => setMapModalOpen(false)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl transition"
-              >
-                닫기
-              </button>
-            </div>
-          </div>
         </div>
-      )}
 
-      {/* 7. 프로그램 등록 모달 (PIN: guro2026) */}
+        {/* [우측 상시 노출 인터랙티브 지도] */}
+        <div className="flex-1 h-[45%] lg:h-full w-full relative bg-slate-100">
+          <div ref={mapContainerRef} className="w-full h-full z-0" />
+        </div>
+      </div>
+
+      {/* 4. 프로그램 등록 모달 */}
       {registerModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
